@@ -1,0 +1,81 @@
+FROM debian:bookworm-slim
+
+# Add "nobody" to ALL groups to create edge cases for testing
+RUN cut -d: -f1 /etc/group | xargs -rtI'{}' usermod -aG '{}' nobody
+# Emulate Alpine's "games" user, which is part of the "users" group
+RUN usermod -aG users games
+
+# Create the `shellsu-t` testing script
+RUN { \
+		echo '#!/bin/sh'; \
+		echo 'set -ex'; \
+		echo; \
+		echo 'spec="$1"; shift'; \
+		echo; \
+		echo 'expec="$1"; shift'; \
+		echo 'real="$(shellsu "$spec" id -u):$(shellsu "$spec" id -g):$(shellsu "$spec" id -G)"'; \
+		echo '[ "$expec" = "$real" ]'; \
+		echo; \
+		echo 'expec="$1"; shift'; \
+		echo 'real="$(shellsu "$spec" id -un):$(shellsu "$spec" id -gn):$(shellsu "$spec" id -Gn)" || true'; \
+		echo '[ "$expec" = "$real" ]'; \
+	} > /usr/local/bin/shellsu-t \
+	&& chmod +x /usr/local/bin/shellsu-t
+
+# Copy the `shellsu` binary/script into the image
+COPY shellsu /usr/local/bin/
+RUN chmod +x /usr/local/bin/shellsu
+
+# Adjust permissions for testing unusual cases
+RUN chgrp nogroup /usr/local/bin/shellsu \
+	&& chmod +s /usr/local/bin/shellsu
+
+# Configure an environment for testing
+ENV SHELLSU_INSECURE_MODE="I've seen things you people wouldn't believe. Attack ships on fire off the shoulder of Orion. I watched C-beams glitter in the dark near the Tannhäuser Gate. All those moments will be lost in time, like tears in rain. Time to die."
+USER nobody
+ENV HOME /omg/really/shellsu/nowhere
+
+# Validate initial state
+RUN id
+
+# Test various user/group configurations
+RUN shellsu-t 0 "0:0:$(id -G root)" "root:root:$(id -Gn root)"
+RUN shellsu-t 0:0 '0:0:0' 'root:root:root'
+RUN shellsu-t root "0:0:$(id -G root)" "root:root:$(id -Gn root)"
+RUN shellsu-t 0:root '0:0:0' 'root:root:root'
+RUN shellsu-t root:0 '0:0:0' 'root:root:root'
+RUN shellsu-t root:root '0:0:0' 'root:root:root'
+RUN shellsu-t 1000 "1000:$(id -g):$(id -g)" "1000:$(id -gn):$(id -gn)"
+RUN shellsu-t 0:1000 '0:1000:1000' 'root:1000:1000'
+RUN shellsu-t 1000:1000 '1000:1000:1000' '1000:1000:1000'
+RUN shellsu-t root:1000 '0:1000:1000' 'root:1000:1000'
+RUN shellsu-t 1000:root '1000:0:0' '1000:root:root'
+RUN shellsu-t 1000:daemon "1000:$(id -g daemon):$(id -g daemon)" '1000:daemon:daemon'
+RUN shellsu-t games "$(id -u games):$(id -g games):$(id -G games)" 'games:games:games users'
+RUN shellsu-t games:daemon "$(id -u games):$(id -g daemon):$(id -g daemon)" 'games:daemon:daemon'
+
+# Test behavior with empty/omitted specifications
+RUN shellsu-t 0: "0:0:$(id -G root)" "root:root:$(id -Gn root)"
+RUN shellsu-t '' "$(id -u):$(id -g):$(id -G)" "$(id -un):$(id -gn):$(id -Gn)"
+RUN shellsu-t ':0' "$(id -u):0:0" "$(id -un):root:root"
+
+# Test `HOME` environment variable behavior
+RUN [ "$(shellsu 0 env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu 0:0 env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu root env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu 0:root env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu root:0 env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu root:root env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu 0:1000 env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu root:1000 env | grep '^HOME=')" = 'HOME=/root' ]
+RUN [ "$(shellsu 1000 env | grep '^HOME=')" = 'HOME=/' ]
+RUN [ "$(shellsu 1000:0 env | grep '^HOME=')" = 'HOME=/' ]
+RUN [ "$(shellsu 1000:root env | grep '^HOME=')" = 'HOME=/' ]
+RUN [ "$(shellsu games env | grep '^HOME=')" = 'HOME=/usr/games' ]
+RUN [ "$(shellsu games:daemon env | grep '^HOME=')" = 'HOME=/usr/games' ]
+
+# Test expected errors for invalid cases
+RUN ! shellsu bogus true
+RUN ! shellsu 0day true
+RUN ! shellsu 0:bogus true
+RUN ! shellsu 0:0day true
