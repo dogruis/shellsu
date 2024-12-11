@@ -2,9 +2,9 @@
 set -Eeuo pipefail
 
 usage() {
-    echo "usage: $0 [--platform] shellsu-binary"
-    echo "   eg: $0 ./shellsu-amd64"
-    echo "       $0 --debian ./shellsu-amd64"
+    echo "usage: $0 [--alpine | --debian] shellsu"
+    echo "   eg: $0 --debian ./shellsu"
+    echo "       $0 --alpine ./shellsu"
 }
 
 df='Dockerfile.test-alpine'
@@ -16,28 +16,45 @@ case "${1:-}" in
 esac
 
 shellsu="${1:-}"
-shift || { usage >&2; exit 1; }
-[ -f "$shellsu" ] || { usage >&2; exit 1; }
+shift || { echo "Error: Missing shellsu script argument." >&2; usage >&2; exit 1; }
+[ -f "$shellsu" ] || { echo "Error: shellsu script '$shellsu' does not exist." >&2; usage >&2; exit 1; }
 
-trap '{ set +x; echo; echo FAILED; echo; } >&2' ERR
-
-set -x
+echo "Verifying Dockerfile: $df"
+[ -f "$df" ] || { echo "Error: Dockerfile '$df' does not exist." >&2; exit 1; }
 
 dir="$(mktemp -d -t shellsu-test-XXXXXXXXXX)"
 base="$(basename "$dir")"
 img="shellsu-test:$base"
 trap "rm -rf '$dir'" EXIT
-cp -T "$df" "$dir/Dockerfile"
-cp -T "$shellsu" "$dir/shellsu"
-docker build -t "$img" "$dir"
-rm -rf "$dir"
+
+echo "Using temporary directory: $dir"
+echo "Docker image will be tagged as: $img"
+echo "Copying shellsu script '$shellsu' to $dir/shellsu"
+echo "Copying Dockerfile '$df' to $dir/Dockerfile"
+
+cp -T "$df" "$dir/Dockerfile" || { echo "Error: Failed to copy Dockerfile to '$dir/Dockerfile'." >&2; exit 1; }
+cp -T "$shellsu" "$dir/shellsu" || { echo "Error: Failed to copy '$shellsu' to '$dir/shellsu'." >&2; exit 1; }
+
+echo "Building Docker image '$img' using Dockerfile '$df'..."
+docker build -t "$img" "$dir" || { echo "Error: Failed to build Docker image '$img'." >&2; exit 1; }
+rm -rf "$dir"  # Clean up the temporary directory
 trap - EXIT
 
 trap "docker rm -f '$base' > /dev/null; docker rmi -f '$img' > /dev/null" EXIT
 
-# using explicit "--init=false" in case dockerd is running with "--init" (because that will skew our process numbers)
-docker run -d --init=false --name "$base" "$img" shellsu root sleep 1000
-sleep 1 # give it plenty of time to get through "shellsu" and into the "sleep"
-[ "$(docker top "$base" | wc -l)" = 2 ]
-# "docker top" should have only two lines
-# -- ps headers and a single line for the single process running in the container
+echo "Testing shellsu script with --help and --version..."
+docker run --rm "$img" /usr/local/bin/shellsu --help || { echo "Error: Failed to run '/usr/local/bin/shellsu --help' inside the container." >&2; exit 1; }
+docker run --rm "$img" /usr/local/bin/shellsu --version || { echo "Error: Failed to run '/usr/local/bin/shellsu --version' inside the container." >&2; exit 1; }
+
+echo "Running the shellsu script with sleep for basic functionality check..."
+docker run -d --init=false --name "$base" "$img" /usr/local/bin/shellsu root sleep 1000 || { echo "Error: Failed to start container with '/usr/local/bin/shellsu root sleep 1000'." >&2; exit 1; }
+
+sleep 1  # Allow some time for the script to run
+echo "Checking process count..."
+process_count=$(docker top "$base" | wc -l)
+if [ "$process_count" -ne 2 ]; then
+    echo "Error: Unexpected number of processes in container (expected 2, found $process_count)." >&2
+    exit 1
+fi
+
+echo "Test passed successfully!"

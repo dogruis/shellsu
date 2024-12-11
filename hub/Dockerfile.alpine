@@ -1,6 +1,6 @@
 FROM alpine:3.20
 
-# https://github.com/tianon/shellsu/releases
+# https://github.com/dogruis/shellsu/releases
 ENV SHELLSU_VERSION 1.17
 
 RUN set -eux; \

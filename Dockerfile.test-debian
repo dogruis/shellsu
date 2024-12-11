@@ -1,5 +1,16 @@
 FROM debian:bookworm-slim
 
+# Install necessary dependencies
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        file \
+        bash \
+        login \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+
 # Add "nobody" to ALL groups to create edge cases for testing
 RUN cut -d: -f1 /etc/group | xargs -rtI'{}' usermod -aG '{}' nobody
 # Emulate Alpine's "games" user, which is part of the "users" group
@@ -7,7 +18,7 @@ RUN usermod -aG users games
 
 # Create the `shellsu-t` testing script
 RUN { \
-		echo '#!/bin/sh'; \
+		echo '#!/bin/bash'; \
 		echo 'set -ex'; \
 		echo; \
 		echo 'spec="$1"; shift'; \
@@ -23,7 +34,7 @@ RUN { \
 	&& chmod +x /usr/local/bin/shellsu-t
 
 # Copy the `shellsu` binary/script into the image
-COPY shellsu /usr/local/bin/
+COPY shellsu /usr/local/bin/shellsu
 RUN chmod +x /usr/local/bin/shellsu
 
 # Adjust permissions for testing unusual cases
@@ -31,12 +42,14 @@ RUN chgrp nogroup /usr/local/bin/shellsu \
 	&& chmod +s /usr/local/bin/shellsu
 
 # Configure an environment for testing
-ENV SHELLSU_INSECURE_MODE="I've seen things you people wouldn't believe. Attack ships on fire off the shoulder of Orion. I watched C-beams glitter in the dark near the Tannhäuser Gate. All those moments will be lost in time, like tears in rain. Time to die."
+ENV SHELLSU_INSECURE_FLAG="I've seen things you people wouldn't believe. Attack ships on fire off the shoulder of Orion. I watched C-beams glitter in the dark near the Tannhäuser Gate. All those moments will be lost in time, like tears in rain. Time to die."
 USER nobody
 ENV HOME /omg/really/shellsu/nowhere
 
 # Validate initial state
 RUN id
+RUN cat /etc/passwd
+RUN cat /etc/group
 
 # Test various user/group configurations
 RUN shellsu-t 0 "0:0:$(id -G root)" "root:root:$(id -Gn root)"

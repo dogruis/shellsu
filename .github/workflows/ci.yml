@@ -17,11 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binfmt-support qemu-user-static
+
       - run: ./build.sh
-      - run: ./test.sh shellsu-amd64
-      - run: ./test.sh shellsu-i386
-      - run: ./test.sh --debian shellsu-amd64
-      - run: ./test.sh --debian shellsu-i386
+      - run: ./test.sh --alpine shellsu
+      - run: ./test.sh --debian shellsu
       - run: docker build --pull --file hub/Dockerfile.alpine hub
       - run: docker build --pull --file hub/Dockerfile.debian hub

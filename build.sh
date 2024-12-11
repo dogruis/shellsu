@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Navigate to the directory containing this script
@@ -7,20 +7,17 @@ cd "$(dirname "$(readlink -f "$BASH_SOURCE")")"
 set -x
 
 # Build the Docker image
-docker build --pull -t shellsu .
+docker build --no-cache --pull -t shellsu .
 
-# Clean up any pre-existing artifacts
 rm -f shellsu* SHA256SUMS*
 
-# Extract the `shellsu` binaries from the built image
-docker run --rm shellsu sh -c 'cd /go/bin && tar -c shellsu*' | tar -xv
+docker run --rm --entrypoint cat shellsu /usr/local/bin/shellsu > shellsu
 
-# Generate SHA256 checksums for the extracted files
-sha256sum shellsu* | tee SHA256SUMS
+chmod +x shellsu
 
-# Inspect the extracted files
-file shellsu*
-ls -lFh shellsu* SHA256SUMS*
+sha256sum shellsu | tee SHA256SUMS
 
-# Run the built binary to verify functionality
-"./shellsu-$(dpkg --print-architecture)" --help
+file shellsu
+ls -lFh shellsu SHA256SUMS
+
+"./shellsu" --help
