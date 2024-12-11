@@ -1,0 +1,16 @@
+FROM alpine:3.20
+
+# https://github.com/tianon/shellsu/releases
+ENV SHELLSU_VERSION 1.17
+
+RUN set -eux; \
+	apk add --no-cache --virtual .fetch-deps dpkg gnupg; \
+	dpkgArch="$(dpkg --print-architecture | awk -F- '{ print $NF }')"; \
+	wget -O /usr/local/bin/shellsu.asc "https://github.com/dogruis/shellsu/releases/download/$SHELLSU_VERSION/shellsu-$dpkgArch.asc"; \
+	wget -O /usr/local/bin/shellsu "https://github.com/dogruis/shellsu/releases/download/$SHELLSU_VERSION/shellsu-$dpkgArch"; \
+	apk del --no-network .fetch-deps; \
+	chmod +x /usr/local/bin/shellsu; \
+	shellsu --version; \
+	shellsu nobody true; \
+	# hard link to / for ease of COPY --from
+	ln -v /usr/local/bin/shellsu /
